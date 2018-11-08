@@ -1,0 +1,14 @@
+proxy: 4096 blksz, 4096 blocks, elapsed time 0.044000, cpu time 0.038689
+proxy: 2048 blksz, 8192 blocks, elapsed time 0.052000, cpu time 0.051185
+proxy: 1024 blksz, 16384 blocks, elapsed time 0.064000, cpu time 0.061592
+proxy: 512 blksz, 32768 blocks, elapsed time 0.088000, cpu time 0.090512
+proxy: 256 blksz, 65536 blocks, elapsed time 0.196000, cpu time 0.195551
+proxy: 128 blksz, 131072 blocks, elapsed time 0.288000, cpu time 0.284203
+proxy: 64 blksz, 262144 blocks, elapsed time 0.489000, cpu time 0.487642
+proxy: 32 blksz, 524288 blocks, elapsed time 1.110000, cpu time 1.106973
+proxy: 16 blksz, 1048576 blocks, elapsed time 2.505000, cpu time 2.489836
+proxy: 8 blksz, 2097152 blocks, elapsed time 5.060000, cpu time 5.051713
+proxy: 4 blksz, 4194304 blocks, elapsed time 10.001000, cpu time 9.957115
+proxy: 2 blksz, 8388608 blocks, elapsed time 19.632000, cpu time 19.560156
+proxy: 1 blksz, 16777216 blocks, elapsed time 38.754000, cpu time 38.656531
+
