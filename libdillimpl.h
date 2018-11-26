@@ -66,6 +66,24 @@ struct dill_bsock_vfs {
 #endif
 
 /******************************************************************************/
+/*  Bytestream sockets.                                                       */
+/******************************************************************************/
+
+DILL_EXPORT extern const void *dill_psock_type;
+
+struct dill_psock_vfs {
+    int (*psendl)(struct dill_psock_vfs *vfs,
+        struct dill_iolist *first, struct dill_iolist *last, int64_t deadline);
+    int (*precvl)(struct dill_psock_vfs *vfs,
+        struct dill_iolist *first, struct dill_iolist *last, int64_t deadline);
+};
+
+#if !defined DILL_DISABLE_RAW_NAMES
+#define psock_vfs dill_psock_vfs
+#define psock_type dill_psock_type
+#endif
+
+/******************************************************************************/
 /*  Message sockets.                                                          */
 /******************************************************************************/
 

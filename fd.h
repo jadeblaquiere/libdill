@@ -74,6 +74,12 @@ int dill_fd_recv(
     struct dill_iolist *first,
     struct dill_iolist *last,
     int64_t deadline);
+int dill_fd_recvp(
+    int s,
+    struct dill_fd_rxbuf *rxbuf,
+    struct dill_iolist *first,
+    struct dill_iolist *last,
+    int64_t deadline);
 void dill_fd_close(
     int s);
 int dill_fd_own(

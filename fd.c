@@ -22,6 +22,7 @@
 
 */
 
+#include <assert.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
@@ -202,8 +203,9 @@ int dill_fd_send(int s, struct dill_iolist *first, struct dill_iolist *last,
 }
 
 /* Same as dill_fd_recv() but with no rx buffering. */
-static int dill_fd_recv_(int s, struct dill_iolist *first,
-      struct dill_iolist *last, int64_t deadline) {
+/* recvp allows partial reads, */
+static int64_t dill_fd_recvp_(int s, struct dill_iolist *first,
+      struct dill_iolist *last, int64_t deadline, struct dill_iolist **current) {
     /* Make a local iovec array. */
     /* TODO: This is dangerous, it may cause stack overflow.
        There should probably be a on-heap per-socket buffer for that. */
@@ -217,6 +219,8 @@ static int dill_fd_recv_(int s, struct dill_iolist *first,
     memset(&hdr, 0, sizeof(hdr));
     hdr.msg_iov = iov;
     hdr.msg_iovlen = niov;
+    *current = first;
+    int64_t readcount = 0;
     while(1) {
         ssize_t sz = recvmsg(s, &hdr, 0);
         if(dill_slow(sz == 0)) {errno = EPIPE; return -1;}
@@ -231,6 +235,7 @@ static int dill_fd_recv_(int s, struct dill_iolist *first,
            that ware already filled in. */
         while(sz) {
             struct iovec *head = &hdr.msg_iov[0];
+            readcount += sz;
             if(head->iov_len > sz) {
                 head->iov_base += sz;
                 head->iov_len -= sz;
@@ -239,12 +244,38 @@ static int dill_fd_recv_(int s, struct dill_iolist *first,
             sz -= head->iov_len;
             hdr.msg_iov++;
             hdr.msg_iovlen--;
-            if(!hdr.msg_iovlen) return 0;
+            if(!hdr.msg_iovlen) {
+                // complete read, double check return conditions
+                assert(*current = last);
+                assert(readcount == (*current)->iol_len);
+                return readcount;
+            }
+            *current = (*current)->iol_next;
+            readcount = 0;
         }
         /* Wait for more data. */
         int rc = dill_fdin(s, deadline);
-        if(dill_slow(rc < 0)) return -1;
+        if(dill_slow(rc < 0)) {
+            if (errno == ETIMEDOUT) {
+                // partial read condition, return concurrent
+                assert(readcount < (*current)->iol_len);
+                return readcount;
+            }
+            return -1;
+        }
     }
+}
+
+/* Same as dill_fd_recv() but with no rx buffering. */
+/* recv interface treats partial reads as an error */
+static int dill_fd_recv_(int s, struct dill_iolist *first,
+      struct dill_iolist *last, int64_t deadline) {
+    struct dill_iolist *current;
+    int64_t rc = dill_fd_recvp_(s, first, last, deadline, &current);
+    if ((rc == current->iol_len) && (current == last)) {
+        return 0;
+    }
+    return -1;
 }
 
 /* Skip len bytes. If len is negative skip until error occurs. */
