@@ -55,8 +55,7 @@ DILL_CHECK_STORAGE(dill_tls_sock, dill_tls_storage)
 
 static void dill_tls_init(void);
 static BIO *dill_tls_new_cbio(void *mem);
-static int dill_tls_followup(struct dill_tls_sock *self, int rc,
-    int64_t deadline);
+static int dill_tls_followup(struct dill_tls_sock *self, int rc);
 
 static void *dill_tls_hquery(struct dill_hvfs *hvfs, const void *type);
 static void dill_tls_hclose(struct dill_hvfs *hvfs);
@@ -117,7 +116,7 @@ int dill_tls_attach_client_mem(int s, struct dill_tls_storage *mem,
     while(1) {
         ERR_clear_error();
         int rc = SSL_connect(ssl);
-        if(dill_tls_followup(self, rc, deadline)) break;
+        if(dill_tls_followup(self, rc)) break;
         if(dill_slow(errno != 0)) {err = errno; goto error4;}
     }
     /* Create the handle. */
@@ -203,7 +202,7 @@ int dill_tls_attach_server_mem(int s, const char *cert, const char *pkey,
     while(1) {
         ERR_clear_error();
         rc = SSL_accept(ssl);
-        if(dill_tls_followup(self, rc, deadline)) break;
+        if(dill_tls_followup(self, rc)) break;
         if(dill_slow(errno != 0)) {err = errno; goto error4;}
     }
     /* Create the handle. */
@@ -250,7 +249,7 @@ int dill_tls_done(int s, int64_t deadline) {
         int rc = SSL_shutdown(self->ssl);
         if(rc == 0) {self->outdone = 1; return 0;}
         if(rc == 1) {self->outdone = 1; self->indone = 1; return 0;}
-        if(dill_tls_followup(self, rc, deadline)) break;
+        if(dill_tls_followup(self, rc)) break;
     }
     dill_assert(errno != 0);
     self->outerr = 1;
@@ -273,7 +272,7 @@ int dill_tls_detach(int s, int64_t deadline) {
             ERR_clear_error();
             int rc = SSL_shutdown(self->ssl);
             if(rc == 1) break;
-            if(dill_tls_followup(self, rc, deadline)) {err = errno; goto error;}
+            if(dill_tls_followup(self, rc)) {err = errno; goto error;}
         }
     }
     int u = self->u;
@@ -299,7 +298,7 @@ static int dill_tls_bsendl(struct dill_bsock_vfs *bvfs,
         while(len > 0) {
             ERR_clear_error();
             int rc = SSL_write(self->ssl, base, len);
-            if(dill_tls_followup(self, rc, deadline)) {
+            if(dill_tls_followup(self, rc)) {
                 if(dill_slow(errno != 0)) {
                     self->outerr = 1;
                     return -1;
@@ -327,7 +326,7 @@ static int dill_tls_brecvl(struct dill_bsock_vfs *bvfs,
         while(1) {
             ERR_clear_error();
             int rc = SSL_read(self->ssl, base, len);
-            if(dill_tls_followup(self, rc, deadline)) {
+            if(dill_tls_followup(self, rc)) {
                 if(dill_slow(errno != 0)) {
                     if(errno == EPIPE) self->indone = 1;
                     else self->inerr = 1;
@@ -359,16 +358,30 @@ static void dill_tls_hclose(struct dill_hvfs *hvfs) {
 /*  Helpers.                                                                  */
 /******************************************************************************/
 
+/* OpenSSL has huge amount of underspecified errors. It's hard to deal
+   with them in a consistent manner. Morever, you can get multiple of
+   them at the same time. There's nothing better to do than to print them to
+   the stderr and return generic EFAULT error instead. */
+static void dill_tls_process_errors(void) {
+    char errstr[512];
+    while(1) {
+        int err = ERR_get_error();
+        if(err == 0) break;
+        ERR_error_string_n(err, errstr, sizeof(errstr));
+        fprintf(stderr, "SSL error: %s\n", errstr);
+    }
+    errno = EFAULT;
+}
+
 /* Do the follow up work after calling a SSL function.
    Returns 0 if the SSL function has to be restarted, 1 is we are done.
    In the latter case, error code is in errno.
    In the case of success errno is set to zero. */
-static int dill_tls_followup(struct dill_tls_sock *self, int rc,
-      int64_t deadline) {
+static int dill_tls_followup(struct dill_tls_sock *self, int rc) {
     int err;
     char errstr[120];
     int code = SSL_get_error(self->ssl, rc);
-	  switch(code) {
+    switch(code) {
 	  case SSL_ERROR_NONE:
         /* Operation finished. */
         errno = 0;
@@ -382,19 +395,18 @@ static int dill_tls_followup(struct dill_tls_sock *self, int rc,
         dill_assert(rc == -1);
         if(errno == 0) return 0;
         return 1;
-	  case SSL_ERROR_SSL:
-        /* SSL errors. Not clear how to convert them into errnos. */
-        err = ERR_get_error();
-        ERR_error_string(err, errstr);
-        fprintf(stderr, "SSL error: %s\n", errstr);
-        errno = EFAULT;
+    case SSL_ERROR_SSL:        
+        dill_tls_process_errors();
         return 1;
-	  case SSL_ERROR_WANT_READ:
+    case SSL_ERROR_WANT_READ:
     case SSL_ERROR_WANT_WRITE:
         /* These two should never happen -- our custom BIO is blocking. */
         dill_assert(0);
     default:
-        fprintf(stderr, "SSL error %d\n", code);
+        /* Unexpected error. Let's at least print out current error queue
+           for debugging purposes. */
+        fprintf(stderr, "SSL error code: %d\n", code);
+        dill_tls_process_errors();
         dill_assert(0);
     }
 }
